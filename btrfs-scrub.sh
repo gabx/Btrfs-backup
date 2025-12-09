@@ -8,10 +8,10 @@ echo "=== BTRFS SCRUB START ===" > "$LOG"
 echo "Date: $DATE" >> "$LOG"
 echo "----------------------------" >> "$LOG"
 
-# Scrub uniquement les systèmes critiques :
-#  - / (nvme0n1p2)
-#  - /backup (sda1)
-# à adapter selon ton setup
+# Scrub only critical systems :
+#  - / (nvmeXnypz)
+#  - /backup (sdaX)
+# please adapt according to your setup setup
 
 echo "[SCRUB] Scrubbing / (nvme0n1p2)" >> "$LOG"
 sudo btrfs scrub start -Bd / >> "$LOG" 2>&1
