@@ -4,8 +4,8 @@ set -euo pipefail
 DATE="$(date +%Y-%m-%d-%H%M)"
 DATE_SHORT="$(date +%Y-%m-%d)"
 
-SRC_HOME="/home/gabx"
-SRC_HOME_SNAPS="/home/gabx/.local-snapshots"
+SRC_HOME="/home/username"
+SRC_HOME_SNAPS="/home/username/.local-snapshots"
 
 SRC_DEV="/development"
 SRC_DEV_SNAPS="/development/.local-snapshots"
