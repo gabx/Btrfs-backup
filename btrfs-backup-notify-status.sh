@@ -9,5 +9,5 @@ if [[ "$STATUS" != "0" ]]; then
         echo "Service     : $SERVICE"
         echo "Exit status : $STATUS"
         echo "Date        : $(date)"
-    } | mail -s "❌ Backup FAILED — $SERVICE" arnaud.gaboury@gmail.com
+    } | mail -s "❌ Backup FAILED — $SERVICE" myemailadress
 fi
