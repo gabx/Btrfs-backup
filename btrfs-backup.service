@@ -1,0 +1,16 @@
+[Unit]
+Description=Btrfs automated backups (home + development)
+RequiresMountsFor=/backup /mnt/btrfs-root /home/gabx /development
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/btrfs-backup.sh
+ExecStartPost=/usr/local/bin/btrfs-backup-notify-status.sh %n
+
+# Pour éviter les conflits
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

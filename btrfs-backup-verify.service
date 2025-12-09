@@ -1,0 +1,8 @@
+[Unit]
+Description=Analyze results of Btrfs backup
+RequiresMountsFor=/backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/btrfs-backup-verify.sh
+ExecStartPost=/usr/local/bin/btrfs-backup-notify-verify.sh %n

@@ -1,0 +1,9 @@
+[Unit]
+Description=Monthly Btrfs scrub for /backup
+RequiresMountsFor=/backup
+ConditionPathIsMountPoint=/backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/btrfs-scrub-backup.sh
+ExecStartPost=/usr/local/bin/btrfs-scrub-notify.sh %n
