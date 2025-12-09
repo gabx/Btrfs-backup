@@ -11,4 +11,4 @@ else
     SUBJECT="✅ Backup VERIFY OK"
 fi
 
-mail -s "$SUBJECT" arnaud.gaboury@gmail.com < "$FILE"
+mail -s "$SUBJECT" myemailadress < "$FILE"
