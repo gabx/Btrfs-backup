@@ -12,4 +12,4 @@ else
     SUBJECT="✅ BTRFS SCRUB OK — $SERVICE"
 fi
 
-mail -s "$SUBJECT" arnaud.gaboury@gmail.com < "$FILE"
+mail -s "$SUBJECT" myemailadress < "$FILE"
