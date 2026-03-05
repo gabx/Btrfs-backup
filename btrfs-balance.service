@@ -1,0 +1,7 @@
+[Unit]
+Description=Btrfs Balance for Backup Drive
+
+[Service]
+Type=oneshot
+# Equilibre les blocs de données (dusage) et de métadonnées (musage) remplis à moins de 10%
+ExecStart=/usr/bin/btrfs balance start -dusage=10 -musage=10 /backup

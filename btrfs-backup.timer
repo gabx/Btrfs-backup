@@ -2,8 +2,10 @@
 Description=Weekly trigger for btrfs-backup.service
 
 [Timer]
-OnCalendar=Sun *-*-* 03:15:00
-Persistent=true
+OnCalendar=Sun *-*-* 04:15:00
+# Persistent=true retiré : évite un déclenchement surprise au boot
+# si le dimanche 04h15 a été manqué (disque absent, etc.)
+# Pour forcer un rattrapage manuel : systemctl start btrfs-backup.service
 
 [Install]
 WantedBy=timers.target

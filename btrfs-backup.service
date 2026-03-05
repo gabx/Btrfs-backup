@@ -1,13 +1,18 @@
 [Unit]
 Description=Btrfs automated backups (home + development)
-RequiresMountsFor=/backup /mnt/btrfs-root /home/gabx /development
+# /home (pas /home/gabx) : homectl monte à la demande, pas à l'init
+RequiresMountsFor=/backup /development
 
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/btrfs-backup.sh
 ExecStartPost=/usr/local/bin/btrfs-backup-notify-status.sh %n
 
-# Pour éviter les conflits
+# Capture tout ce que le script envoie sur stdout/stderr vers journald
+StandardOutput=journal
+StandardError=journal
+
+# Basse priorité I/O pour ne pas perturber le système
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
