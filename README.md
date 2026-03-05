@@ -204,22 +204,15 @@ Every run sends an email with the full log attached, regardless of outcome:
 - `[OK] Backup magnolia — YYYY-MM-DD-HHMM`
 - `[ECHEC] Backup magnolia — YYYY-MM-DD-HHMM`
 
-Uses `msmtp` with a Gmail app password (standard 2FA account, dedicated sender address). Configure `/etc/msmtprc`:
+Uses `s-nail` with a Gmail app password (standard 2FA account, dedicated sender address). Configure `~/.mailrc`:
 
 ```
-defaults
-auth           on
-tls            on
-tls_trust_file /etc/ssl/certs/ca-certificates.crt
-
-account        gmail
-host           smtp.gmail.com
-port           587
-from           sender@gmail.com
-user           sender@gmail.com
-password       xxxx xxxx xxxx xxxx
-
-account default : gmail
+set mta=smtp://smtp.gmail.com:587
+set smtp-use-starttls
+set smtp-auth=login
+set smtp-auth-user="sender@gmail.com"
+set smtp-auth-password="xxxx xxxx xxxx xxxx"
+set from="sender@gmail.com"
 ```
 
 ### Installation
@@ -279,7 +272,7 @@ From this point on, all subsequent runs by the timer will be incremental.
 - Arch Linux with btrfs filesystem and a clean subvolume layout
 - Limine bootloader (UEFI), 1 GB ESP recommended
 - External btrfs disk mounted at `/backup`
-- `msmtp` configured for email notifications
+- `s-nail` configured for email notifications (`~/.mailrc`)
 - `snapper`, `inotify-tools`, `limine-snapper-sync` installed
 - `yay` or another AUR helper for `limine-mkinitcpio-hook` and `limine-snapper-sync`
 
