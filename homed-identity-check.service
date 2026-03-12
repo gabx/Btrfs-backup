@@ -1,0 +1,14 @@
+[Unit]
+Description=Check and repair systemd-homed identity coherence for gabx
+After=systemd-homed.service
+Requires=systemd-homed.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/homed-identity-check.sh
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
