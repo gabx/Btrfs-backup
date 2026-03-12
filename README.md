@@ -146,6 +146,134 @@ After restoration, a **"backup"** entry is added to the Limine menu pointing to 
 
 ---
 
+## Part 1b — Restoring `/home` from Backup Snapshot
+
+When `gabx.homedir` is inaccessible or corrupt (e.g. homectl fails with `Value too large for defined data type` or similar), restore it directly from a btrfs snapshot on `/backup`. This is near-instantaneous thanks to btrfs COW — no file-by-file copy needed.
+
+### Available Snapshots
+
+```bash
+btrfs subvolume list /backup | grep home
+# e.g.
+# home/snaps/home-2026-03-05-0543
+# home/snaps/home-2026-03-08-1313
+```
+
+### Restore Procedure
+
+```bash
+# 1. Stop homed
+systemctl stop systemd-homed
+
+# 2. Move aside the broken home (keep it until restore is confirmed working)
+mv /home/gabx.homedir /home/gabx.homedir.broken
+
+# 3. Instant restore via btrfs snapshot (no copy — shares blocks via COW)
+btrfs subvolume snapshot \
+    /backup/home/snaps/<snapshot-to-restore> \
+    /home/gabx.homedir
+
+# 4. Make the restored subvolume writable
+btrfs property set /home/gabx.homedir ro false
+
+# 5. Restart homed and activate
+systemctl start systemd-homed
+homectl activate gabx
+```
+
+Once the restore is confirmed working:
+
+```bash
+# Clean up the broken copy
+btrfs subvolume delete /home/gabx.homedir.broken
+```
+
+### Why Not cp or rsync?
+
+`btrfs subvolume snapshot` is the correct tool here — it is instantaneous regardless of home directory size, and uses no additional disk space until files diverge (COW). `cp -a` or `rsync` copy every byte and can take hours for a large home directory.
+
+Use `rsync` only if you need to **exclude** specific directories (e.g. `.cache`) or merge selectively:
+
+```bash
+rsync -aHAX --progress \
+    --exclude='.cache/' \
+    --exclude='Downloads/' \
+    /backup/home/snaps/<snapshot>/. \
+    /home/gabx.homedir/
+```
+
+### Known Issue — homectl `Value too large for defined data type` (EOVERFLOW)
+
+**Symptom:** `homectl activate gabx` fails with `Failed to move identity file into place: Value too large for defined data type`, even though the password is correct (confirmed by `journalctl -u systemd-homed`).
+
+**Root cause:** A systemd update changed the structure of `/var/lib/systemd/home/gabx.identity` (adding fields such as `blobDirectory`, `status`, etc.), making it newer than the `.identity` file embedded inside `gabx.homedir`. During activation, `systemd-homework` attempts to reconcile the two files and write the result back into `gabx.homedir/.identity` via `renameat()`. This call fails with EOVERFLOW — a misleading error that actually indicates a signature mismatch or incoherent state between the two identity files, not a filesystem limit.
+
+The EOVERFLOW on `renameat` is a secondary symptom. The real problem is that the embedded `.identity` is out of sync with the host identity and cannot be reconciled cleanly.
+
+**Resolution:** Re-sign the embedded `.identity` using the host identity and homed's own private key, then force a `homectl update` to let homed rewrite both files cleanly.
+
+```bash
+# Step 1 — re-sign the embedded .identity with the correct format
+python3 - << 'EOF'
+import json, base64
+from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PublicFormat
+
+with open("/var/lib/systemd/home/local.private", "rb") as f:
+    private_key = load_pem_private_key(f.read(), password=None)
+
+with open("/var/lib/systemd/home/gabx.identity", "r") as f:
+    identity = json.load(f)
+
+# The embedded .identity must NOT contain binding, status, or signature
+exclude = {"signature", "binding", "status"}
+embedded = {k: v for k, v in identity.items() if k not in exclude}
+
+# systemd signs compact JSON with sorted keys (sd_json_variant_format flag=0)
+to_sign = json.dumps(embedded, sort_keys=True, separators=(',', ':')).encode()
+
+signature = private_key.sign(to_sign)
+sig_b64 = base64.b64encode(signature).decode()
+pub_pem = private_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode()
+
+embedded["signature"] = [{"data": sig_b64, "key": pub_pem}]
+
+with open("/home/gabx.homedir/.identity", "w") as f:
+    json.dump(embedded, f, indent="\t")
+    f.write("\n")
+
+print("Done — embedded .identity re-signed")
+EOF
+
+# Step 2 — restart homed and activate
+systemctl restart systemd-homed
+homectl activate gabx   # should succeed or report "already active"
+
+# Step 3 — force homed to rewrite both identity files cleanly
+homectl update gabx --real-name="Arno Gaboury"
+
+# Step 4 — verify both files are now in sync
+cat /home/gabx.homedir/.identity | grep lastChangeUSec
+cat /var/lib/systemd/home/gabx.identity | grep lastChangeUSec
+# Both timestamps must be identical
+```
+
+After a successful `homectl update`, both identity files are rewritten and signed by homed itself — the issue will not recur unless another systemd update causes a new divergence.
+
+**Note on rate limiting:** A high `badAuthenticationCounter` (visible in `/var/lib/systemd/home/gabx.identity`) can trigger rate limiting and block activation independently of the above. Reset it manually if needed:
+
+```bash
+# Edit /var/lib/systemd/home/gabx.identity and set:
+"badAuthenticationCounter" : 0,
+"rateLimitBeginUSec" : 0,
+"rateLimitCount" : 0
+
+systemctl restart systemd-homed
+```
+
+**Note on the Python signing format:** systemd's JSON signing implementation (`sd_json_variant_format` with flag `0`) produces compact JSON with sorted keys — equivalent to Python's `json.dumps(obj, sort_keys=True, separators=(',', ':'))`. The fields excluded from signing are `signature`, `binding`, and `status` (see `user-record-sign.c`, `USER_RECORD_STRIP_BINDING | USER_RECORD_STRIP_STATUS | USER_RECORD_STRIP_SIGNATURE`).
+
+---
+
 ## Part 2 — Incremental Backup to External Drive
 
 Weekly incremental backups using `btrfs send -p | btrfs receive`. After an initial full send, only the diff between the previous and current snapshot is transferred — typically a few GB per week rather than the full 70-80 GB of a home directory.
@@ -219,11 +347,14 @@ set from="sender@gmail.com"
 
 ```bash
 sudo cp btrfs-backup.sh /usr/local/bin/
-sudo chmod +x /usr/local/bin/btrfs-backup.sh
+sudo chmod 750 /usr/local/bin/btrfs-backup.sh
+sudo chown root:root /usr/local/bin/btrfs-backup.sh
 sudo cp btrfs-backup.service btrfs-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now btrfs-backup.timer
 ```
+
+> **Note:** `chmod 750` is required — systemd refuses to execute the script with `Permission denied` (status 203/EXEC) if the executable bit is missing.
 
 ### Initial Setup (first run only)
 
@@ -264,6 +395,46 @@ From this point on, all subsequent runs by the timer will be incremental.
 | `snapper-timeline.timer` | Creates hourly snapshots |
 | `snapper-cleanup.timer` | Enforces retention policy |
 | `btrfs-backup.timer` | Weekly incremental backup (Sunday 04:15) |
+| `homed-identity-check.timer` | Weekly + on-boot check of homed identity coherence (Monday 05:00) |
+
+---
+
+## Part 3 — homed Identity Coherence Check
+
+A systemd update can silently diverge the host identity file (`/var/lib/systemd/home/gabx.identity`) from the embedded identity inside `gabx.homedir/.identity`. When this happens, `homectl activate` fails with a misleading EOVERFLOW error at next login. This service detects and repairs the divergence automatically.
+
+### How It Works
+
+On every run, the script compares `lastChangeUSec` between the two identity files. If they differ, it:
+
+1. Re-signs the embedded `.identity` using homed's own private key and the exact JSON format systemd expects
+2. Restarts `systemd-homed`
+3. Runs `homectl update` to let homed rewrite both files cleanly with its own signature
+
+The check runs at boot (after a 30s delay to let homed start) and weekly on Monday at 05:00 — the day after the btrfs backup runs.
+
+### Installation
+
+```bash
+sudo cp homed-identity-check.sh /usr/local/bin/
+sudo chmod 750 /usr/local/bin/homed-identity-check.sh
+sudo chown root:root /usr/local/bin/homed-identity-check.sh
+sudo cp homed-identity-check.service homed-identity-check.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now homed-identity-check.timer
+```
+
+### Manual Run
+
+```bash
+sudo systemctl start homed-identity-check.service
+journalctl -u homed-identity-check.service -n 30
+cat /var/log/homed-identity-check.log
+```
+
+### Limitation
+
+If the home is inactive at check time (user not logged in, home not mounted), the script re-signs the embedded `.identity` but cannot run `homectl update` — that requires an interactive password. In this case the re-signed embedded file is enough to allow the next `homectl activate` to succeed, and homed will complete the sync on its own during activation.
 
 ---
 
