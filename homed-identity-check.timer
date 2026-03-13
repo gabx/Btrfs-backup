@@ -4,8 +4,8 @@ Description=Weekly check of systemd-homed identity coherence for gabx
 [Timer]
 # Vérifie le lendemain du backup btrfs (lundi 05:00 vs dimanche 04:15)
 OnCalendar=Mon *-*-* 05:00:00
-# Également au boot, après un délai pour laisser homed démarrer
-OnBootSec=30s
+# Au boot, après 60s pour laisser homed et GDM démarrer complètement
+OnBootSec=60s
 Unit=homed-identity-check.service
 
 [Install]
