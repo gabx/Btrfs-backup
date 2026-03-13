@@ -450,7 +450,7 @@ On every run, the script compares `lastChangeUSec` between the two identity file
 2. Restarts `systemd-homed`
 3. Runs `homectl update` to let homed rewrite both files cleanly with its own signature
 
-The check runs at boot (after a 30s delay to let homed start) and weekly on Monday at 05:00 — the day after the btrfs backup runs.
+The check runs at boot (after a 60s delay to let homed start) and weekly on Monday at 05:00 — the day after the btrfs backup runs.
 
 ### Installation
 
