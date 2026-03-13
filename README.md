@@ -210,7 +210,46 @@ rsync -aHAX --progress \
 
 The EOVERFLOW on `renameat` is a secondary symptom. The real problem is that the embedded `.identity` is out of sync with the host identity and cannot be reconciled cleanly.
 
-**Resolution:** Re-sign the embedded `.identity` using the host identity and homed's own private key, then force a `homectl update` to let homed rewrite both files cleanly.
+**Resolution — try this first (simple fix):**
+
+The root cause is incorrect ownership on `.identity` or `gabx.homedir` itself, which prevents `systemd-homework` from performing the `renameat()`. See upstream bug report [systemd#38941](https://github.com/systemd/systemd/issues/38941).
+
+First, check the current ownership:
+
+```bash
+stat /home/gabx.homedir
+ls -la /home/gabx.homedir/.identity
+```
+
+When the home is **inactive**, the expected ownership is:
+
+| Path | Expected owner |
+|---|---|
+| `/home/gabx.homedir/` | `nobody:nobody` |
+| `/home/gabx.homedir/.identity` | `nobody:nobody` |
+
+Two variants have been reported depending on what went wrong:
+
+**Variant A** — `.identity` has wrong owner (`gabx:gabx` instead of `nobody:nobody`):
+```bash
+systemctl stop systemd-homed
+chown nobody:nogroup /home/gabx.homedir/.identity
+chown nobody:nogroup /home/gabx.homedir/.identity-blob/ 2>/dev/null || true
+systemctl start systemd-homed
+homectl activate gabx
+```
+
+**Variant B** — `gabx.homedir` itself has wrong owner (not `nobody:nobody`):
+```bash
+systemctl stop systemd-homed
+chown nobody:nobody /home/gabx.homedir
+systemctl start systemd-homed
+homectl activate gabx
+```
+
+**Resolution — fallback if the above does not work (re-sign):**
+
+If the ownership fix is not sufficient, the embedded `.identity` may also be out of sync with the host identity. Re-sign it using homed's own private key, then force a `homectl update` to let homed rewrite both files cleanly.
 
 ```bash
 # Step 1 — re-sign the embedded .identity with the correct format
