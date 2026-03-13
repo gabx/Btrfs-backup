@@ -461,6 +461,10 @@ sudo chown root:root /usr/local/bin/homed-identity-check.sh
 sudo cp homed-identity-check.service homed-identity-check.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now homed-identity-check.timer
+
+# Pacman hook — triggers check after every systemd upgrade
+sudo mkdir -p /etc/pacman.d/hooks
+sudo cp homed-identity-check.hook /etc/pacman.d/hooks/
 ```
 
 ### Manual Run
@@ -470,6 +474,16 @@ sudo systemctl start homed-identity-check.service
 journalctl -u homed-identity-check.service -n 30
 cat /var/log/homed-identity-check.log
 ```
+
+### Pacman Hook
+
+A pacman hook triggers the check automatically after every systemd upgrade — the most common cause of identity divergence. Install it alongside the timer:
+
+```bash
+sudo cp homed-identity-check.hook /etc/pacman.d/hooks/
+```
+
+The hook file must be placed in `/etc/pacman.d/hooks/` (create the directory if it does not exist). It fires after any transaction that upgrades `systemd` or `systemd-libs`, running `homed-identity-check.service` immediately post-upgrade while the system is still up.
 
 ### Limitation
 
