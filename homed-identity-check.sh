@@ -64,6 +64,56 @@ else
 fi
 
 if [[ "${NEEDS_RESIGN:-false}" == "true" ]]; then
+    # --- Étape 1 : correction des permissions (fix simple, upstream bug #38941) ---
+    # Deux variantes connues :
+    # A) .identity appartient à gabx:gabx au lieu de nobody:nobody
+    # B) gabx.homedir lui-même a le mauvais propriétaire
+
+    log "Checking and fixing ownership (upstream bug #38941)..."
+
+    HOMEDIR="/home/gabx.homedir"
+    HOMEDIR_OWNER=$(stat -c '%U:%G' "$HOMEDIR" 2>/dev/null)
+    IDENTITY_OWNER=$(stat -c '%U:%G' "$EMBEDDED_IDENTITY" 2>/dev/null || echo "missing")
+
+    log "Current $HOMEDIR owner: $HOMEDIR_OWNER"
+    log "Current $EMBEDDED_IDENTITY owner: $IDENTITY_OWNER"
+
+    FIXED=false
+
+    # Variante B : homedir lui-même a le mauvais propriétaire
+    if [[ "$HOMEDIR_OWNER" != "nobody:nobody" && "$HOMEDIR_OWNER" != "nobody:nogroup" ]]; then
+        log "Fixing $HOMEDIR ownership → nobody:nobody"
+        chown nobody:nobody "$HOMEDIR"
+        FIXED=true
+    fi
+
+    # Variante A : .identity a le mauvais propriétaire
+    if [[ "$IDENTITY_OWNER" != "nobody:nobody" && "$IDENTITY_OWNER" != "nobody:nogroup" && "$IDENTITY_OWNER" != "missing" ]]; then
+        log "Fixing $EMBEDDED_IDENTITY ownership → nobody:nobody"
+        chown nobody:nobody "$EMBEDDED_IDENTITY"
+        chown nobody:nobody "$HOMEDIR/.identity-blob/" 2>/dev/null || true
+        FIXED=true
+    fi
+
+    if [[ "$FIXED" == "true" ]]; then
+        systemctl restart systemd-homed
+        sleep 2
+
+        HOMED_STATE=$(homectl inspect "$USER" 2>/dev/null | awk '/State:/ {print $2}')
+        log "Home state after ownership fix: $HOMED_STATE"
+
+        if [[ "$HOMED_STATE" == "active" ]]; then
+            log "Ownership fix was sufficient — identity files are now accessible."
+            NEEDS_RESIGN=false
+        else
+            log "Ownership fix not sufficient — proceeding with re-sign."
+        fi
+    else
+        log "Ownership looks correct — proceeding directly to re-sign."
+    fi
+fi
+
+if [[ "${NEEDS_RESIGN:-false}" == "true" ]]; then
     log "Re-signing embedded .identity..."
 
     python3 - << 'EOF' >> "$LOGFILE" 2>&1
