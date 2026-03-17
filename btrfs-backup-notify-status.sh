@@ -1,3 +1,4 @@
+#!/bin/bash
 SERVICE="$1"
 STATUS="$(systemctl show -p ExecMainStatus "$SERVICE" | cut -d= -f2)"
 DATE="$(date +%Y-%m-%d-%H%M)"
