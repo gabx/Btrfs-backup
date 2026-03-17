@@ -10,6 +10,9 @@
 #
 # Root n'est PAS sauvegardé ici — Snapper + Limine assurent la protection
 # locale du système. Le backup externe couvre uniquement les données utilisateur.
+#
+# Notifications email gérées exclusivement par btrfs-backup-notify-status.sh
+# via ExecStartPost dans le .service.
 # ==============================================================================
 
 # ==============================================================================
@@ -17,7 +20,6 @@
 # ==============================================================================
 TARGET_UUID="dccf798a-53a3-4fe5-aa77-95dc0fd28458"
 BACKUP_ROOT="/backup"
-MAIL_TO="arnaud.gaboury@gmail.com"
 
 SRC_HOME="/home/gabx.homedir"
 SRC_HOME_SNAPS_DIR="/home/.local-snapshots-gabx"
@@ -51,11 +53,6 @@ _on_exit() {
     echo "$msg" >&2
     if [[ -n "${LOGFILE:-}" ]]; then
       printf "%s\n" "$msg" >>"$LOGFILE"
-      {
-        echo "Le backup a échoué sur magnolia."
-        echo ""
-        cat "$LOGFILE"
-      } | mail -s "[ECHEC] Backup magnolia - $DATE" "$MAIL_TO" 2>/dev/null || true
     fi
   fi
 }
@@ -268,12 +265,5 @@ df -h "$BACKUP_ROOT" | tee -a "$LOGFILE"
 
 log_msg ""
 log_msg "=== Completed successfully ==="
-
-# Envoi email de succès
-{
-  echo "Le backup s'est terminé avec succès sur magnolia."
-  echo ""
-  cat "$LOGFILE"
-} | mail -s "[OK] Backup magnolia - $DATE" "$MAIL_TO" 2>/dev/null || true
 
 exit 0
