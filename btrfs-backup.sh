@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# btrfs-backup.sh — Sauvegarde incrémentale btrfs (home + development + root)
+# btrfs-backup.sh — Sauvegarde incrémentale btrfs (home + development)
 # Placé dans /usr/local/bin/btrfs-backup.sh
 # Exécuté en root via btrfs-backup.service / btrfs-backup.timer
 #
@@ -8,8 +8,8 @@
 #   - home-parent / dev-parent : snapshot précédent, sert de parent btrfs
 #   - à chaque backup : nouveau snapshot → send -p parent → parent remplacé
 #
-# Pour root : utilise les snapshots snapper dans /.snapshots
-#   - /etc/btrfs-backup-root.state : stocke l'ID du dernier snapshot envoyé
+# Root n'est PAS sauvegardé ici — Snapper + Limine assurent la protection
+# locale du système. Le backup externe couvre uniquement les données utilisateur.
 # ==============================================================================
 
 # ==============================================================================
@@ -17,7 +17,7 @@
 # ==============================================================================
 TARGET_UUID="dccf798a-53a3-4fe5-aa77-95dc0fd28458"
 BACKUP_ROOT="/backup"
-MAIL_TO="ton.adresse@gmail.com"
+MAIL_TO="arnaud.gaboury@gmail.com"
 
 SRC_HOME="/home/gabx.homedir"
 SRC_HOME_SNAPS_DIR="/home/.local-snapshots-gabx"
@@ -29,12 +29,8 @@ SRC_DEV_SNAPS_DIR="/development/.local-snapshots"
 SRC_DEV_PARENT="$SRC_DEV_SNAPS_DIR/dev-parent"
 SRC_DEV_LATEST="$SRC_DEV_SNAPS_DIR/dev-latest"
 
-SRC_ROOT_SNAPS_DIR="/.snapshots"
-ROOT_STATE_FILE="/etc/btrfs-backup-root.state"
-
 DEST_HOME="$BACKUP_ROOT/home/snaps"
 DEST_DEV="$BACKUP_ROOT/development/snaps"
-DEST_ROOT="$BACKUP_ROOT/root/snaps"
 ANALYSIS_DIR="$BACKUP_ROOT/analysis_daily"
 
 MIN_SPACE=10485760 # 10 Go en Ko
@@ -55,7 +51,6 @@ _on_exit() {
     echo "$msg" >&2
     if [[ -n "${LOGFILE:-}" ]]; then
       printf "%s\n" "$msg" >>"$LOGFILE"
-      # Envoi email d'échec
       {
         echo "Le backup a échoué sur magnolia."
         echo ""
@@ -117,7 +112,7 @@ fi
 # ------------------------------------------------------------------------------
 # INITIALISATION
 # ------------------------------------------------------------------------------
-mkdir -p "$ANALYSIS_DIR" "$SRC_HOME_SNAPS_DIR" "$SRC_DEV_SNAPS_DIR" "$DEST_HOME" "$DEST_DEV" "$DEST_ROOT"
+mkdir -p "$ANALYSIS_DIR" "$SRC_HOME_SNAPS_DIR" "$SRC_DEV_SNAPS_DIR" "$DEST_HOME" "$DEST_DEV"
 
 LOGFILE="$ANALYSIS_DIR/${DATE_SHORT}.txt"
 
@@ -261,102 +256,11 @@ process_backup() {
 }
 
 ############################################
-### FUNCTION : process_backup_root
-### Send incrémental via snapshots snapper
-### Le dernier ID envoyé est stocké dans ROOT_STATE_FILE
-############################################
-process_backup_root() {
-  log_msg "=== ROOT BACKUP START ==="
-
-  # Lire l'ID du dernier snapshot envoyé
-  local LAST_SENT_ID=""
-  if [[ -f "$ROOT_STATE_FILE" ]]; then
-    LAST_SENT_ID=$(cat "$ROOT_STATE_FILE")
-    log_msg "[ROOT] Last sent snapshot ID: $LAST_SENT_ID"
-  fi
-
-  # Trouver le snapshot snapper le plus récent
-  local LATEST_SNAP_ID
-  LATEST_SNAP_ID=$(find "$SRC_ROOT_SNAPS_DIR" -maxdepth 2 -name "snapshot" -type d |
-    sort -t/ -k3 -n | tail -1 | cut -d/ -f3)
-
-  if [[ -z "$LATEST_SNAP_ID" ]]; then
-    log_err "[ROOT] No snapper snapshot found. Skipping."
-    return 1
-  fi
-
-  local SRC_SNAP="$SRC_ROOT_SNAPS_DIR/$LATEST_SNAP_ID/snapshot"
-  log_msg "[ROOT] Latest snapper snapshot: ID=$LATEST_SNAP_ID"
-  _assert_is_subvolume "$SRC_SNAP"
-
-  # Si le dernier envoyé est le même que le plus récent, rien à faire
-  if [[ "$LAST_SENT_ID" == "$LATEST_SNAP_ID" ]]; then
-    log_msg "[ROOT] Snapshot ID=$LATEST_SNAP_ID already sent. Nothing to do."
-    log_msg "=== ROOT BACKUP DONE ==="
-    return 0
-  fi
-
-  local SNAP_NAME="root-${DATE}"
-  local TEMP_RECV_PATH="$DEST_ROOT/snapshot"
-
-  # Nettoyage résiduel
-  if [[ -e "$TEMP_RECV_PATH" ]]; then
-    log_msg "[ROOT] Cleaning leftover: $TEMP_RECV_PATH"
-    btrfs subvolume delete "$TEMP_RECV_PATH" >>"$LOGFILE" 2>&1 || rm -rf "$TEMP_RECV_PATH"
-  fi
-
-  # Send incrémental si on a un parent valide
-  local PARENT_SNAP=""
-  if [[ -n "$LAST_SENT_ID" ]]; then
-    PARENT_SNAP="$SRC_ROOT_SNAPS_DIR/$LAST_SENT_ID/snapshot"
-    if ! btrfs subvolume show "$PARENT_SNAP" >/dev/null 2>&1; then
-      log_msg "[ROOT] Parent ID=$LAST_SENT_ID no longer exists locally, falling back to FULL send"
-      PARENT_SNAP=""
-    fi
-  fi
-
-  if [[ -n "$PARENT_SNAP" ]]; then
-    log_msg "[ROOT] Sending INCREMENTAL (parent: ID=$LAST_SENT_ID) → $DEST_ROOT/$SNAP_NAME"
-    btrfs send -p "$PARENT_SNAP" "$SRC_SNAP" 2>>"$LOGFILE" | btrfs receive "$DEST_ROOT" >>"$LOGFILE" 2>&1
-  else
-    log_msg "[ROOT] No parent, sending FULL → $DEST_ROOT/$SNAP_NAME"
-    btrfs send "$SRC_SNAP" 2>>"$LOGFILE" | btrfs receive "$DEST_ROOT" >>"$LOGFILE" 2>&1
-  fi
-
-  local send_rc="${PIPESTATUS[0]}" recv_rc="${PIPESTATUS[1]}"
-  if [[ "$send_rc" -ne 0 || "$recv_rc" -ne 0 ]]; then
-    log_err "[ROOT] CRITICAL: send/receive failed (send=$send_rc, receive=$recv_rc)"
-    exit 1
-  fi
-
-  # Renommage
-  if [[ -d "$TEMP_RECV_PATH" ]]; then
-    if mv "$TEMP_RECV_PATH" "$DEST_ROOT/$SNAP_NAME" 2>>"$LOGFILE"; then
-      log_msg "[ROOT] Renamed to $SNAP_NAME"
-    else
-      log_err "[ROOT] mv failed: $TEMP_RECV_PATH → $DEST_ROOT/$SNAP_NAME"
-      exit 1
-    fi
-  else
-    log_err "[ROOT] $TEMP_RECV_PATH not found after receive."
-    exit 1
-  fi
-
-  # Sauvegarder l'ID du snapshot envoyé
-  echo "$LATEST_SNAP_ID" >"$ROOT_STATE_FILE"
-  log_msg "[ROOT] State updated: last sent ID=$LATEST_SNAP_ID"
-
-  retain_last_n "$DEST_ROOT"
-  log_msg "=== ROOT BACKUP DONE ==="
-}
-
-############################################
 ### EXÉCUTION
 ############################################
 
 process_backup "$SRC_HOME" "$SRC_HOME_SNAPS_DIR" "$SRC_HOME_PARENT" "$SRC_HOME_LATEST" "$DEST_HOME" "home"
 process_backup "$SRC_DEV" "$SRC_DEV_SNAPS_DIR" "$SRC_DEV_PARENT" "$SRC_DEV_LATEST" "$DEST_DEV" "dev"
-process_backup_root
 
 log_msg ""
 log_msg "=== Disk usage (df -h) ==="
@@ -367,11 +271,9 @@ log_msg "=== Completed successfully ==="
 
 # Envoi email de succès
 {
-  echo "Subject: [OK] Backup magnolia - $DATE"
-  echo ""
   echo "Le backup s'est terminé avec succès sur magnolia."
   echo ""
   cat "$LOGFILE"
-} | msmtp "$MAIL_TO" 2>/dev/null || true
+} | mail -s "[OK] Backup magnolia - $DATE" "$MAIL_TO" 2>/dev/null || true
 
 exit 0
