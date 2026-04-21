@@ -1,8 +1,5 @@
+set v15-compat
 set mta=smtp://smtp.gmail.com:587
 set smtp-use-starttls
-set smtp-auth=login
-set smtp-auth-user="MYUSER@gmail.com"
-set from="MYUSER@gmail.com"
-set smtp-auth-password="XXXX YYYY"
-set from="MYUSER@gmail.com"
-
+set from="Username@gmail.com"
+set netrc-lookup
