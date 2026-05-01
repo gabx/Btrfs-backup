@@ -6,7 +6,7 @@ LOG_DIR="/backup/analysis_daily"
 LATEST="$(ls -1t $LOG_DIR/scrub-* | head -n 1)"
 FILE="$LATEST"
 
-if grep -qi "error" "$FILE"; then
+if grep -qiE "^error|read error|write error|corruption" "$FILE"; then
     SUBJECT="❌ BTRFS SCRUB FOUND ERRORS — $SERVICE"
 else
     SUBJECT="✅ BTRFS SCRUB OK — $SERVICE"
